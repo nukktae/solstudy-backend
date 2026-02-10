@@ -55,7 +55,10 @@ uvicorn main:app --reload
 ## Deploy on Render
 
 - **Root Directory:** `solstudy-back` (if deploying from monorepo).
-- **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`  
+- **Start Command:** In the Start Command field put **only** this (no `startCommand:` or other prefix):
+  ```bash
+  uvicorn main:app --host 0.0.0.0 --port $PORT
+  ```
   Do **not** use `app.main:app` — the app lives in `main.py`, not in an `app` package.
 - Set env vars in Dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and optionally `SUPABASE_TASK_BUCKET`.
 
