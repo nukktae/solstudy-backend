@@ -52,6 +52,13 @@ uvicorn main:app --reload
 - API: http://127.0.0.1:8000
 - Docs: http://127.0.0.1:8000/docs
 
+## Deploy on Render
+
+- **Root Directory:** `solstudy-back` (if deploying from monorepo).
+- **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`  
+  Do **not** use `app.main:app` — the app lives in `main.py`, not in an `app` package.
+- Set env vars in Dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and optionally `SUPABASE_TASK_BUCKET`.
+
 ## Auth endpoints
 
 - `POST /api/auth/signup` – body: `{ "email", "password", "name?", "role?" }`
