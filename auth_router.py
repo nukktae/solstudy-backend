@@ -1,11 +1,15 @@
 """Custom auth: signup and login. Stores users in Supabase table auth_users."""
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from auth_utils import create_access_token, hash_password, verify_password
+from config import JWT_PRIVATE_KEY
 from supabase_admin import get_supabase_admin
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 # Lenient email: at least one @ and something after it (for testing; tighten in production)
 def is_valid_email(value: str) -> bool:
@@ -42,6 +46,12 @@ class AuthResponse(BaseModel):
 
 @router.post("/signup", response_model=AuthResponse)
 def signup(body: SignupBody):
+    if not JWT_PRIVATE_KEY:
+        logger.error("Signup attempted but JWT_PRIVATE_KEY is not set (check server env)")
+        raise HTTPException(
+            status_code=503,
+            detail="서버 설정이 완료되지 않았습니다. 관리자에게 문의하세요.",
+        )
     if not is_valid_email(body.email):
         raise HTTPException(status_code=400, detail="이메일 형식이 올바르지 않습니다.")
     if len(body.password) < 6:
@@ -89,6 +99,12 @@ def signup(body: SignupBody):
 
 @router.post("/login", response_model=AuthResponse)
 def login(body: LoginBody):
+    if not JWT_PRIVATE_KEY:
+        logger.error("Login attempted but JWT_PRIVATE_KEY is not set (check server env)")
+        raise HTTPException(
+            status_code=503,
+            detail="서버 설정이 완료되지 않았습니다. 관리자에게 문의하세요.",
+        )
     supabase = get_supabase_admin()
     result = (
         supabase.table("auth_users")
@@ -100,14 +116,29 @@ def login(body: LoginBody):
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
 
     row = result.data[0]
-    if not verify_password(body.password, row["password_hash"]):
+    stored_hash = row.get("password_hash")
+    if not stored_hash:
+        logger.warning("auth_users row missing password_hash for email=%s", body.email)
+        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+    try:
+        if not verify_password(body.password, stored_hash):
+            raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+    except (ValueError, TypeError) as e:
+        logger.warning("Password verification failed (bad hash?): %s", e)
         raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
 
     user_id = str(row["id"])
     role = "mentor" if row.get("role") == "mentor" else "student"
-    token = create_access_token(
-        {"sub": user_id, "email": row["email"], "role": role}
-    )
+    try:
+        token = create_access_token(
+            {"sub": user_id, "email": row["email"], "role": role}
+        )
+    except ValueError as e:
+        logger.error("JWT creation failed: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="서버 설정이 완료되지 않았습니다. 관리자에게 문의하세요.",
+        ) from e
     return AuthResponse(
         user=UserResponse(
             id=user_id,

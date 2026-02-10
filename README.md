@@ -60,7 +60,8 @@ uvicorn main:app --reload
   uvicorn main:app --host 0.0.0.0 --port $PORT
   ```
   Do **not** use `app.main:app` — the app lives in `main.py`, not in an `app` package.
-- Set env vars in Dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and optionally `SUPABASE_TASK_BUCKET`.
+- Set env vars in Dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and optionally `SUPABASE_TASK_BUCKET`, `ALLOWED_ORIGINS`.
+- **If login returns 500:** Ensure `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` are set on Render. Generate with `python scripts/gen_jwt_keys.py`, paste both into Render env (use `\n` for newlines in the PEM, or one line). The same public key must be in the frontend as `NEXT_PUBLIC_JWT_PUBLIC_KEY`.
 
 ## Auth endpoints
 
