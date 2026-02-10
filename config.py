@@ -15,9 +15,8 @@ SUPABASE_TASK_BUCKET: str = os.environ.get("SUPABASE_TASK_BUCKET", "task-files")
 # Optional until you add JWT verification for protected routes. Set in .env for production.
 JWT_SECRET: str = os.environ.get("JWT_SECRET", "")
 
-# Custom auth: RS256 JWT. Generate with: python -m solstudy_back.gen_keys (or see README).
-JWT_PRIVATE_KEY: str = os.environ.get("JWT_PRIVATE_KEY", "").replace("\\n", "\n")
-JWT_PUBLIC_KEY: str = os.environ.get("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+# Supabase Auth: verify access tokens (HS256). Get from Dashboard → Project Settings → API → JWT Secret.
+SUPABASE_JWT_SECRET: str = os.environ.get("SUPABASE_JWT_SECRET", "")
 
 # CORS: comma-separated origins. Default includes localhost + production frontend.
 _DEFAULT_ORIGINS = "http://localhost:3000,https://solstudy.vercel.app"

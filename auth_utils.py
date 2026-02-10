@@ -1,50 +1,37 @@
-"""Password hashing and JWT (RS256) for custom auth."""
-from datetime import datetime, timezone, timedelta
+"""Verify Supabase Auth JWT (HS256). Payload includes sub, email, user_metadata (role, name)."""
 from typing import Any
 
 from jose import jwt
-from passlib.context import CryptContext
 
-from config import JWT_PRIVATE_KEY, JWT_PUBLIC_KEY
+from config import SUPABASE_JWT_SECRET
 
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-JWT_ALGORITHM = "RS256"
-JWT_EXPIRY_HOURS = 24 * 7  # 7 days
+SUPABASE_JWT_ALGORITHM = "HS256"
 
 
-def hash_password(password: str) -> str:
-    return pwd_ctx.hash(password)
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_ctx.verify(plain, hashed)
-
-
-def create_access_token(payload: dict[str, Any]) -> str:
-    if not JWT_PRIVATE_KEY:
-        raise ValueError("JWT_PRIVATE_KEY is not set")
-    now = datetime.now(timezone.utc)
-    payload = {
-        **payload,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=JWT_EXPIRY_HOURS)).timestamp()),
-    }
-    return jwt.encode(
-        payload,
-        JWT_PRIVATE_KEY,
-        algorithm=JWT_ALGORITHM,
-    )
-
-
-def decode_token(token: str) -> dict[str, Any] | None:
-    if not JWT_PUBLIC_KEY:
+def decode_supabase_token(token: str) -> dict[str, Any] | None:
+    """Verify Supabase access token and return normalized payload: sub, email, role, name."""
+    if not SUPABASE_JWT_SECRET:
         return None
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
-            JWT_PUBLIC_KEY,
-            algorithms=[JWT_ALGORITHM],
+            SUPABASE_JWT_SECRET,
+            algorithms=[SUPABASE_JWT_ALGORITHM],
+            audience="authenticated",
         )
     except Exception:
         return None
+    if not payload or "sub" not in payload:
+        return None
+    # Normalize for app: role/name from user_metadata (set on signup)
+    user_meta = payload.get("user_metadata") or {}
+    role = user_meta.get("role") or "student"
+    if role not in ("mentor", "student"):
+        role = "student"
+    name = user_meta.get("name") or payload.get("email") or ""
+    return {
+        "sub": payload["sub"],
+        "email": payload.get("email") or "",
+        "role": role,
+        "name": name,
+    }

@@ -1,44 +1,30 @@
 # Solstudy Backend (FastAPI)
 
 - **Framework:** FastAPI
-- **Auth:** Custom only (signup/login with JWT RS256). Users stored in Supabase **database** table `auth_users`. Not connected to Supabase Auth (no `auth.signIn`, `auth.signUp`, etc.).
+- **Auth:** Supabase Auth. The frontend signs in/signs up via Supabase; the backend verifies the **Supabase access token** (JWT, HS256) and reads `sub`, `email`, `role`/`name` from the token. No custom signup/login endpoints.
 
 ## Env
+
+**Where to get each value:** see [docs/CREDENTIALS.md](../docs/CREDENTIALS.md) for step-by-step instructions (Supabase Dashboard → Project Settings → API).
 
 Copy `.env.example` to `.env` and set:
 
 - `SUPABASE_URL` – project URL
 - `SUPABASE_SERVICE_ROLE_KEY` – server-only key (never expose to client)
-- `JWT_PRIVATE_KEY` – RS256 private key PEM (for signing JWTs)
-- `JWT_PUBLIC_KEY` – RS256 public key PEM (same as in frontend `NEXT_PUBLIC_JWT_PUBLIC_KEY`)
+- `SUPABASE_JWT_SECRET` – from Supabase Dashboard → Project Settings → API → **JWT Secret**. Used to verify Supabase access tokens (HS256).
 
-Generate keys:
-
-```bash
-pip install cryptography
-python scripts/gen_jwt_keys.py
-```
-
-Paste the private key into `.env` as `JWT_PRIVATE_KEY` and the public key as `JWT_PUBLIC_KEY`. In `.env` you can use `\n` for newlines in the PEM, or put the key on one line. Put the same public key in the frontend `.env.local` as `NEXT_PUBLIC_JWT_PUBLIC_KEY`.
+Optionally: `SUPABASE_TASK_BUCKET`, `ALLOWED_ORIGINS`.
 
 ## Database (Supabase)
 
-Run the migration once in Supabase SQL Editor (Dashboard → SQL Editor):
+1. Run migrations in Supabase SQL Editor (Dashboard → SQL Editor) in order:
+   - `supabase/migrations/20250210000000_create_auth_users.sql`
+   - `supabase/migrations/20250210100000_create_tasks_and_submissions.sql`
+   - `supabase/migrations/20250210200000_add_task_attachments.sql`
+   - `supabase/migrations/20250210300000_create_feedback_daily.sql`
+   - `supabase/migrations/20250210400000_supabase_auth_profiles.sql` (profiles + trigger to sync new Supabase users into `auth_users`)
 
-```sql
--- See supabase/migrations/20250210000000_create_auth_users.sql
-create table if not exists public.auth_users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique,
-  password_hash text not null,
-  name text,
-  role text not null default 'student' check (role in ('student', 'mentor')),
-  created_at timestamptz not null default now()
-);
-create index if not exists idx_auth_users_email on public.auth_users (email);
-```
-
-Then run the tasks migration (see `supabase/migrations/20250210100000_create_tasks_and_submissions.sql`) and the attachments migration (`20250210200000_add_task_attachments.sql`). Create a **public** Storage bucket named `task-files` in Supabase Dashboard → Storage (or set `SUPABASE_TASK_BUCKET` in `.env`) for mentor task attachments and student submission file uploads.
+2. Create a **public** Storage bucket named `task-files` in Supabase Dashboard → Storage (or set `SUPABASE_TASK_BUCKET` in `.env`).
 
 ## Run
 
@@ -55,26 +41,20 @@ uvicorn main:app --reload
 ## Deploy on Render
 
 - **Root Directory:** `solstudy-back` (if deploying from monorepo).
-- **Start Command:** In the Start Command field put **only** this (no `startCommand:` or other prefix):
-  ```bash
-  uvicorn main:app --host 0.0.0.0 --port $PORT
-  ```
-  Do **not** use `app.main:app` — the app lives in `main.py`, not in an `app` package.
-- Set env vars in Dashboard: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and optionally `SUPABASE_TASK_BUCKET`, `ALLOWED_ORIGINS`.
-- **If login returns 500:** Ensure `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` are set on Render. Generate with `python scripts/gen_jwt_keys.py`, paste both into Render env (use `\n` for newlines in the PEM, or one line). The same public key must be in the frontend as `NEXT_PUBLIC_JWT_PUBLIC_KEY`.
+- **Start Command:** `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Set env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, and optionally `SUPABASE_TASK_BUCKET`, `ALLOWED_ORIGINS`.
 
-## Auth endpoints
+## Auth
 
-- `POST /api/auth/signup` – body: `{ "email", "password", "name?", "role?" }`
-- `POST /api/auth/login` – body: `{ "email", "password" }`
-- `GET /api/auth/public-key` – returns public key PEM (optional, for frontend)
+- **No signup/login on this backend.** The frontend uses Supabase Auth (`signInWithPassword`, `signUp`). Send the Supabase **access token** in `Authorization: Bearer <token>` for protected routes.
+- `GET /api/auth/me` – returns current user (`id`, `email`, `name`, `role`) from the Bearer token. Requires valid Supabase JWT.
 
 ## 과제 (Tasks) endpoints
 
-All task endpoints require **Authorization: Bearer `<access_token>`** (from login).
+All require **Authorization: Bearer `<Supabase access_token>`**.
 
-- `GET /api/students` – **Mentor only.** List students (for task assignment).
-- `POST /api/tasks` – **Mentor only.** Create task. **Form-data:** `title`, `subject`, `due_date`, `description`, `goal`, `student_id`; optional **files** (multiple file uploads). Attachments are stored in Supabase Storage and URLs saved on the task.
-- `GET /api/tasks` – List tasks. Student: own only; optional `?due_date=`. Mentor: optional `?student_id=`.
+- `GET /api/students` – **Mentor only.** List students.
+- `POST /api/tasks` – **Mentor only.** Create task (form-data + optional files).
+- `GET /api/tasks` – List tasks (student: own; mentor: optional `?student_id=`).
 - `GET /api/tasks/{task_id}` – Get one task.
-- `POST /api/tasks/{task_id}/submit` – **Student only.** Submit task. **Form-data:** `study_time_minutes`; optional **files** (multiple file uploads). Uploaded files are stored in Supabase Storage and URLs saved on the submission.
+- `POST /api/tasks/{task_id}/submit` – **Student only.** Submit task (form-data + optional files).
