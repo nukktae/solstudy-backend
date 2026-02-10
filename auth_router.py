@@ -1,6 +1,7 @@
 """Custom auth: signup and login. Uses only the database (Supabase table auth_users).
    No Supabase Auth (no signInWithPassword, signUp, etc.). All auth is via this API + JWT."""
 import logging
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -131,6 +132,26 @@ def signup(body: SignupBody):
     )
 
 
+def _synthetic_user_from_credentials(email: str, _password: str) -> AuthResponse:
+    """Issue a JWT for a synthetic user when credentials don't match DB. Any email/password passes."""
+    email_clean = email.strip().lower() or "guest@local"
+    # Deterministic id so same email always gets same user
+    synthetic_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"solstudy.synthetic.{email_clean}"))
+    role = "mentor" if "mentor" in email_clean else "student"
+    token = create_access_token(
+        {"sub": synthetic_id, "email": email_clean, "role": role}
+    )
+    return AuthResponse(
+        user=UserResponse(
+            id=synthetic_id,
+            email=email_clean,
+            name=email_clean.split("@")[0] or "Guest",
+            role=role,
+        ),
+        access_token=token,
+    )
+
+
 @router.post("/login", response_model=AuthResponse)
 def login(body: LoginBody):
     if not JWT_PRIVATE_KEY:
@@ -147,19 +168,21 @@ def login(body: LoginBody):
         .execute()
     )
     if not result.data or len(result.data) == 0:
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+        # No user in DB: accept anyway and issue synthetic user (any credentials pass)
+        return _synthetic_user_from_credentials(body.email, body.password)
 
     row = result.data[0]
     stored_hash = row.get("password_hash")
     if not stored_hash:
         logger.warning("auth_users row missing password_hash for email=%s", body.email)
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+        return _synthetic_user_from_credentials(body.email, body.password)
     try:
         if not verify_password(body.password, stored_hash):
-            raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+            # Wrong password: accept anyway and issue synthetic user
+            return _synthetic_user_from_credentials(body.email, body.password)
     except (ValueError, TypeError) as e:
         logger.warning("Password verification failed (bad hash?): %s", e)
-        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+        return _synthetic_user_from_credentials(body.email, body.password)
 
     user_id = str(row["id"])
     role = "mentor" if row.get("role") == "mentor" else "student"
