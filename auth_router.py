@@ -1,4 +1,5 @@
-"""Custom auth: signup and login. Stores users in Supabase table auth_users."""
+"""Custom auth: signup and login. Uses only the database (Supabase table auth_users).
+   No Supabase Auth (no signInWithPassword, signUp, etc.). All auth is via this API + JWT."""
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -94,11 +95,22 @@ def signup(body: SignupBody):
         logger.exception("Supabase insert failed (auth_users): %s", e)
         raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.") from e
 
-    if not insert.data or len(insert.data) == 0:
-        logger.warning("auth_users insert returned no data for email=%s", body.email)
-        raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.")
-
-    user_row = insert.data[0]
+    if insert.data and len(insert.data) > 0:
+        user_row = insert.data[0]
+    else:
+        # Fallback: some Supabase setups don't return inserted row; fetch by email
+        logger.info("auth_users insert returned no data, fetching by email for email=%s", body.email)
+        fetch = (
+            supabase.table("auth_users")
+            .select("id, email, name, role")
+            .eq("email", body.email.strip().lower())
+            .limit(1)
+            .execute()
+        )
+        if not fetch.data or len(fetch.data) == 0:
+            logger.warning("auth_users insert succeeded but could not fetch row for email=%s", body.email)
+            raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.")
+        user_row = fetch.data[0]
     user_id = str(user_row["id"])
     try:
         token = create_access_token(

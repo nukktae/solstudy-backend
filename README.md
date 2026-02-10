@@ -1,7 +1,7 @@
 # Solstudy Backend (FastAPI)
 
 - **Framework:** FastAPI
-- **Auth:** Custom (signup/login with JWT RS256). Users stored in Supabase table `auth_users`.
+- **Auth:** Custom only (signup/login with JWT RS256). Users stored in Supabase **database** table `auth_users`. Not connected to Supabase Auth (no `auth.signIn`, `auth.signUp`, etc.).
 
 ## Env
 
