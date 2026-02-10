@@ -1,0 +1,128 @@
+"""Custom auth: signup and login. Stores users in Supabase table auth_users."""
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from auth_utils import create_access_token, hash_password, verify_password
+from supabase_admin import get_supabase_admin
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Lenient email: at least one @ and something after it (for testing; tighten in production)
+def is_valid_email(value: str) -> bool:
+    return bool(value and "@" in value and len(value) > 3 and len(value) < 256)
+
+
+class SignupBody(BaseModel):
+    email: str
+    password: str
+    name: str | None = None
+    role: str = "student"
+
+    @property
+    def role_normalized(self) -> str:
+        return "mentor" if self.role == "mentor" else "student"
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+    access_token: str
+
+
+@router.post("/signup", response_model=AuthResponse)
+def signup(body: SignupBody):
+    if not is_valid_email(body.email):
+        raise HTTPException(status_code=400, detail="이메일 형식이 올바르지 않습니다.")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="비밀번호는 6자 이상이어야 합니다.")
+
+    supabase = get_supabase_admin()
+    existing = (
+        supabase.table("auth_users")
+        .select("id")
+        .eq("email", body.email.strip().lower())
+        .execute()
+    )
+    if existing.data and len(existing.data) > 0:
+        raise HTTPException(status_code=400, detail="이미 가입된 이메일입니다. 로그인해 주세요.")
+
+    password_hash = hash_password(body.password)
+    role = body.role_normalized
+    name = (body.name or "").strip() or body.email
+
+    row = {
+        "email": body.email.strip().lower(),
+        "password_hash": password_hash,
+        "name": name,
+        "role": role,
+    }
+    insert = supabase.table("auth_users").insert(row).execute()
+    if not insert.data or len(insert.data) == 0:
+        raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.")
+
+    user_row = insert.data[0]
+    user_id = str(user_row["id"])
+    token = create_access_token(
+        {"sub": user_id, "email": user_row["email"], "role": role}
+    )
+    return AuthResponse(
+        user=UserResponse(
+            id=user_id,
+            email=user_row["email"],
+            name=user_row.get("name") or user_row["email"],
+            role=role,
+        ),
+        access_token=token,
+    )
+
+
+@router.post("/login", response_model=AuthResponse)
+def login(body: LoginBody):
+    supabase = get_supabase_admin()
+    result = (
+        supabase.table("auth_users")
+        .select("id, email, name, role, password_hash")
+        .eq("email", body.email.strip().lower())
+        .execute()
+    )
+    if not result.data or len(result.data) == 0:
+        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+
+    row = result.data[0]
+    if not verify_password(body.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+
+    user_id = str(row["id"])
+    role = "mentor" if row.get("role") == "mentor" else "student"
+    token = create_access_token(
+        {"sub": user_id, "email": row["email"], "role": role}
+    )
+    return AuthResponse(
+        user=UserResponse(
+            id=user_id,
+            email=row["email"],
+            name=row.get("name") or row["email"],
+            role=role,
+        ),
+        access_token=token,
+    )
+
+
+@router.get("/public-key")
+def get_public_key():
+    """Return the public key PEM for JWT verification (e.g. in frontend middleware)."""
+    from config import JWT_PUBLIC_KEY
+    if not JWT_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Public key not configured.")
+    return {"public_key_pem": JWT_PUBLIC_KEY}

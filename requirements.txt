@@ -1,0 +1,12 @@
+# FastAPI and server
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Supabase (service role / server-only)
+supabase==2.10.0
+
+# Env, JWT, password hashing
+python-dotenv==1.0.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography>=42.0.0
