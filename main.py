@@ -1,6 +1,9 @@
 """Solstudy FastAPI backend. Uses Supabase (service role) and JWT_SECRET server-side only."""
+import logging
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +14,8 @@ from tasks_router import router as tasks_router
 from supabase_admin import get_supabase_admin
 from config import CORS_ORIGINS
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Solstudy API",
     description="Backend for Solstudy (Supabase + JWT)",
@@ -18,14 +23,26 @@ app = FastAPI(
 )
 
 
+def _add_cors_to_response(response: Response, request: Request) -> None:
+    """Set CORS headers on response if request has an allowed origin."""
+    origin = request.headers.get("origin")
+    if origin and origin in CORS_ORIGINS:
+        response.headers.setdefault("Access-Control-Allow-Origin", origin)
+        response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+
+
 class EnsureCORSHeadersMiddleware(BaseHTTPMiddleware):
-    """Ensure CORS headers are on every response (including 4xx/5xx) so browser can read the body."""
+    """Ensure CORS headers are on every response (including 4xx/5xx and unhandled errors)."""
     async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        origin = request.headers.get("origin")
-        if origin and origin in CORS_ORIGINS:
-            response.headers.setdefault("Access-Control-Allow-Origin", origin)
-            response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            logger.exception("Unhandled exception: %s", e)
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."},
+            )
+        _add_cors_to_response(response, request)
         return response
 
 

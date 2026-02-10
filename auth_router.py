@@ -67,7 +67,12 @@ def signup(body: SignupBody):
     if existing.data and len(existing.data) > 0:
         raise HTTPException(status_code=400, detail="이미 가입된 이메일입니다. 로그인해 주세요.")
 
-    password_hash = hash_password(body.password)
+    try:
+        password_hash = hash_password(body.password)
+    except Exception as e:
+        logger.exception("Password hashing failed: %s", e)
+        raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.") from e
+
     role = body.role_normalized
     name = (body.name or "").strip() or body.email
 
@@ -77,15 +82,26 @@ def signup(body: SignupBody):
         "name": name,
         "role": role,
     }
-    insert = supabase.table("auth_users").insert(row).execute()
+    try:
+        insert = supabase.table("auth_users").insert(row).execute()
+    except Exception as e:
+        logger.exception("Supabase insert failed (auth_users): %s", e)
+        raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.") from e
+
     if not insert.data or len(insert.data) == 0:
+        logger.warning("auth_users insert returned no data for email=%s", body.email)
         raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.")
 
     user_row = insert.data[0]
     user_id = str(user_row["id"])
-    token = create_access_token(
-        {"sub": user_id, "email": user_row["email"], "role": role}
-    )
+    try:
+        token = create_access_token(
+            {"sub": user_id, "email": user_row["email"], "role": role}
+        )
+    except Exception as e:
+        logger.exception("JWT creation failed on signup: %s", e)
+        raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.") from e
+
     return AuthResponse(
         user=UserResponse(
             id=user_id,
