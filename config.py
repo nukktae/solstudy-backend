@@ -23,3 +23,5 @@ JWT_PUBLIC_KEY: str = os.environ.get("JWT_PUBLIC_KEY", "").replace("\\n", "\n")
 _DEFAULT_ORIGINS = "http://localhost:3000,https://solstudy.vercel.app"
 _ALLOWED = os.environ.get("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).strip()
 CORS_ORIGINS: list[str] = [o.strip() for o in _ALLOWED.split(",") if o.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["http://localhost:3000", "https://solstudy.vercel.app"]

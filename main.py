@@ -1,4 +1,7 @@
 """Solstudy FastAPI backend. Uses Supabase (service role) and JWT_SECRET server-side only."""
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,6 +17,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
+
+class EnsureCORSHeadersMiddleware(BaseHTTPMiddleware):
+    """Ensure CORS headers are on every response (including 4xx/5xx) so browser can read the body."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        origin = request.headers.get("origin")
+        if origin and origin in CORS_ORIGINS:
+            response.headers.setdefault("Access-Control-Allow-Origin", origin)
+            response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+        return response
+
+
+# Order: last added runs first. EnsureCORS runs first so it runs last on response (adds headers if missing).
+app.add_middleware(EnsureCORSHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
