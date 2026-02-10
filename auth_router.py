@@ -83,7 +83,13 @@ def signup(body: SignupBody):
         "role": role,
     }
     try:
-        insert = supabase.table("auth_users").insert(row).execute()
+        # .select() is required so Supabase returns the inserted row in .data
+        insert = (
+            supabase.table("auth_users")
+            .insert(row)
+            .select("id, email, name, role")
+            .execute()
+        )
     except Exception as e:
         logger.exception("Supabase insert failed (auth_users): %s", e)
         raise HTTPException(status_code=500, detail="회원가입에 실패했습니다.") from e
